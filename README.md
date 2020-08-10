@@ -43,7 +43,7 @@ we can also accomplish it via the command line:
 
 ```
 wget ftp.ncbi.nlm.nih.gov/pubmed/baseline
-grep -o -P 'medline.*?.gz' baseline | uniq |
+grep -o -P 'pubmed.*?.gz' baseline | uniq |
 sed -e 's/^/ftp:\/\/ftp.ncbi.nlm.nih.gov\/pubmed\/baseline\//' > filelist
 
 ```
