@@ -6,22 +6,12 @@ from datetime import datetime
 import json
 from elasticsearch import Elasticsearch, RequestsHttpConnection, serializer, compat, exceptions, helpers
 import logging
+import xml.etree.ElementTree as ET
+
 logging.basicConfig(filename='parse.log',level=logging.INFO)
+es = Elasticsearch()  # use default of localhost, port 9200
 
-# rollback recent changes to serializer that choke on unicode
-class JSONSerializerPython2(serializer.JSONSerializer):
-        def dumps(self, data):
-                # don't serialize strings
-                if isinstance(data, compat.string_types):
-                        return data
-                try:
-                        return json.dumps(data, default=self.default, ensure_ascii=True)
-                except (ValueError, TypeError) as e:
-                        raise exceptions.SerializationError(data, e)
-
-es = Elasticsearch(serializer=JSONSerializerPython2())  # use default of localhost, port 9200
-
-with open(sys.argv[1], 'r') as f:
+with open(sys.argv[0], 'r', encoding="utf8") as f:
         data=f.read()
 
 recs = data.split("<PubmedArticle>");
@@ -29,6 +19,26 @@ recs = data.split("<PubmedArticle>");
 recs.pop(0)
 
 articles = []
+
+def parse_mesh(heading_list):
+        return_lst = []
+
+        for item in heading_list:
+                item = "<MeshHeading>" + item + "</MeshHeading>"
+                root = ET.fromstring(item)
+
+                descriptor = root.find("DescriptorName").text.strip()
+                qualifier = list(map(lambda k: k.text.strip(), root.findall("QualifierName")))
+
+                if qualifier:
+                        for qualifier in qualifier:
+                                temp = f"{descriptor} ({qualifier})"
+
+                                return_lst.append(temp)
+                else:
+                        return_lst.append(descriptor)
+        
+        return return_lst
 
 for r in recs:
         pmid = re.findall('<PMID Version="1">(.*?)</PMID>', r)
@@ -48,7 +58,7 @@ for r in recs:
         if abstract:
                 abstract = re.sub("\n\s*", "", abstract[0])
                 abstract = re.sub('<AbstractText Label="(.*?)".*?>', "\\1: ", abstract)
-                abtract = re.sub('</AbstractText>', "", abstract)
+                abstract = re.sub('</AbstractText>', "", abstract)
         else:
                 abstract = ""
 
@@ -57,9 +67,23 @@ for r in recs:
                 type = str(type)
         else:
                 type = str([])
-                
-        articles.append({'_index': 'medline', '_type': 'article', "_op_type": 'index', '_source': {"pmid": pmid, "title": title, "abstract": abstract, "timestamp": datetime.now().isoformat(), "type": type}})
 
-res = helpers.bulk(es, articles, raise_on_exception=False)
+        mesh_heading_list = re.findall("<MeshHeading>(.*?)</MeshHeading>", r, flags=re.DOTALL)
+        if mesh_heading_list:
+                mesh_heading_list = parse_mesh(mesh_heading_list)
+        else:
+                mesh_heading_list = []
 
+        articles.append(
+                {'_index': 'medline', 
+                '_type': 'article', 
+                "_op_type": 'index', 
+                '_source': {"pmid": pmid, 
+                            "title": title, 
+                            "abstract": abstract, 
+                            "timestamp": datetime.now().isoformat(), 
+                            "type": type, 
+                            "mesh": mesh_heading_list}})
+
+res = helpers.bulk(es, articles)#, raise_on_exception=False)
 logging.info(datetime.now().isoformat() + " imported " + str(res[0]) + " records from " + sys.argv[1])
