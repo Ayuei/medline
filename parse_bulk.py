@@ -73,17 +73,22 @@ for r in recs:
                 mesh_heading_list = parse_mesh(mesh_heading_list)
         else:
                 mesh_heading_list = []
-
-        articles.append(
-                {'_index': 'medline', 
+                
+        document = {'_index': 'medline', 
                 '_type': 'article', 
                 "_op_type": 'index', 
-                '_source': {"pmid": pmid, 
+                '_source': {"_id": pmid,
+                            "pmid": pmid,
                             "title": title, 
                             "abstract": abstract, 
                             "timestamp": datetime.now().isoformat(), 
                             "type": type, 
-                            "mesh": mesh_heading_list}})
+                            "mesh": mesh_heading_list}}
+        
+        if not pmid:
+                document.pop("_id")
+
+        articles.append(document)
 
 res = helpers.bulk(es, articles)#, raise_on_exception=False)
 logging.info(datetime.now().isoformat() + " imported " + str(res[0]) + " records from " + sys.argv[1])
